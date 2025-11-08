@@ -1,0 +1,2002 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Trade - Forex Trading Journal</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load React and Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Load Chart.js untuk grafik -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        /* Background dengan chart pattern */
+        .chart-background {
+            background: 
+                linear-gradient(45deg, #1e3a8a 0%, #3730a3 50%, #7e22ce 100%),
+                url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h100v100H0z' fill='none'/%3E%3Cpath d='M20 20h10v60H20z' fill='%234f46e5' opacity='0.2'/%3E%3Cpath d='M40 30h10v50H40z' fill='%238b5cf6' opacity='0.2'/%3E%3Cpath d='M60 40h10v40H60z' fill='%23a855f7' opacity='0.2'/%3E%3Cpath d='M80 25h10v55H80z' fill='%23c084fc' opacity='0.2'/%3E%3C/svg%3E");
+            background-blend-mode: overlay;
+        }
+        
+        /* Trend line animation */
+        @keyframes trendUp {
+            0% { transform: translateY(10px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+        
+        .trend-animate {
+            animation: trendUp 0.6s ease-out;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        /* Fix untuk input password */
+        .password-input {
+            -webkit-text-security: none !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-[Inter]">
+
+    <div id="root">
+        <div class="flex items-center justify-center min-h-screen bg-gray-50">
+            <p class="text-xl text-blue-600">Memuat Your Trade App...</p>
+        </div>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+        // ====================================================================
+        // KONSTANTA & HELPER UTAMA
+        // ====================================================================
+        const RATE_PER_LOT_PER_PIP = 10;
+        const PIP_FACTOR = 10000; 
+        
+        // Key untuk localStorage - DIPISAH PER USER DAN JURNAL
+        const USER_DATA_PREFIX = 'user_trading_data_';
+        const CURRENT_USER_KEY = 'current_trading_user';
+        const DRAFT_STORAGE_KEY_PREFIX = 'draft_entry_'; 
+        
+        // Daftar Metode Trading Default
+        const DEFAULT_TRADING_METHODS = [
+            'Price Action',
+            'Supply Demand', 
+            'Support Resistance',
+            'Fibonacci',
+            'Moving Average',
+            'RSI Strategy',
+            'MACD Strategy',
+            'Breakout Strategy',
+            'Trend Following',
+            'Scalping'
+        ];
+        
+        const LinkIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-link">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.74 1.74"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+        );
+
+        // ====================================================================
+        // SERVICE UNTUK MANAJEMEN DATA USER & JURNAL
+        // ====================================================================
+        const UserStorageService = {
+            // Simpan data user dengan password
+            saveUserData: (userEmail, userData) => {
+                try {
+                    localStorage.setItem(USER_DATA_PREFIX + userEmail, JSON.stringify(userData));
+                    return true;
+                } catch (e) {
+                    console.error('Gagal menyimpan data user:', e);
+                    return false;
+                }
+            },
+
+            // Ambil data user
+            getUserData: (userEmail) => {
+                try {
+                    const data = localStorage.getItem(USER_DATA_PREFIX + userEmail);
+                    return data ? JSON.parse(data) : null;
+                } catch (e) {
+                    console.error('Gagal memuat data user:', e);
+                    return null;
+                }
+            },
+
+            // Buat user baru
+            createUser: (userEmail, password, userName = null) => {
+                try {
+                    const userData = {
+                        initialized: true,
+                        name: userName || userEmail.split('@')[0],
+                        email: userEmail,
+                        password: password,
+                        createdAt: new Date().toISOString(),
+                        journals: ['Jurnal Utama Saya'],
+                        journalData: {},
+                        settings: {}
+                    };
+                    return UserStorageService.saveUserData(userEmail, userData);
+                } catch (e) {
+                    console.error('Gagal membuat user:', e);
+                    return false;
+                }
+            },
+
+            // Verifikasi password user
+            verifyPassword: (userEmail, password) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    return userData && userData.password === password;
+                } catch (e) {
+                    console.error('Gagal verifikasi password:', e);
+                    return false;
+                }
+            },
+
+            // Update password user
+            updatePassword: (userEmail, newPassword) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    if (userData) {
+                        userData.password = newPassword;
+                        return UserStorageService.saveUserData(userEmail, userData);
+                    }
+                    return false;
+                } catch (e) {
+                    console.error('Gagal update password:', e);
+                    return false;
+                }
+            },
+
+            // Simpan user yang sedang login
+            setCurrentUser: (userEmail) => {
+                try {
+                    localStorage.setItem(CURRENT_USER_KEY, userEmail);
+                    return true;
+                } catch (e) {
+                    console.error('Gagal menyimpan user aktif:', e);
+                    return false;
+                }
+            },
+
+            // Ambil user yang sedang login
+            getCurrentUser: () => {
+                try {
+                    return localStorage.getItem(CURRENT_USER_KEY);
+                } catch (e) {
+                    console.error('Gagal memuat user aktif:', e);
+                    return null;
+                }
+            },
+
+            // Logout user
+            logoutUser: () => {
+                try {
+                    localStorage.removeItem(CURRENT_USER_KEY);
+                    return true;
+                } catch (e) {
+                    console.error('Gagal logout:', e);
+                    return false;
+                }
+            },
+
+            // Simpan data jurnal untuk user tertentu
+            saveJournalEntries: (userEmail, journalName, entries) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    if (userData) {
+                        userData.journalData[journalName] = entries;
+                        return UserStorageService.saveUserData(userEmail, userData);
+                    }
+                    return false;
+                } catch (e) {
+                    console.error('Gagal menyimpan data jurnal:', e);
+                    return false;
+                }
+            },
+
+            // Ambil data jurnal untuk user tertentu
+            getJournalEntries: (userEmail, journalName) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    return userData ? userData.journalData[journalName] || [] : [];
+                } catch (e) {
+                    console.error('Gagal memuat data jurnal:', e);
+                    return [];
+                }
+            },
+
+            // Simpan daftar jurnal untuk user tertentu
+            saveJournalList: (userEmail, journalList) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    if (userData) {
+                        userData.journals = journalList;
+                        return UserStorageService.saveUserData(userEmail, userData);
+                    }
+                    return false;
+                } catch (e) {
+                    console.error('Gagal menyimpan daftar jurnal:', e);
+                    return false;
+                }
+            },
+
+            // Ambil daftar jurnal untuk user tertentu
+            getJournalList: (userEmail) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    return userData ? userData.journals || ['Jurnal Utama Saya'] : ['Jurnal Utama Saya'];
+                } catch (e) {
+                    console.error('Gagal memuat daftar jurnal:', e);
+                    return ['Jurnal Utama Saya'];
+                }
+            },
+
+            // Hapus jurnal untuk user tertentu
+            deleteJournal: (userEmail, journalName) => {
+                try {
+                    const userData = UserStorageService.getUserData(userEmail);
+                    if (userData) {
+                        delete userData.journalData[journalName];
+                        userData.journals = userData.journals.filter(name => name !== journalName);
+                        return UserStorageService.saveUserData(userEmail, userData);
+                    }
+                    return false;
+                } catch (e) {
+                    console.error('Gagal menghapus jurnal:', e);
+                    return false;
+                }
+            }
+        };
+
+        // ====================================================================
+        // COMPONENT CUSTOM PASSWORD INPUT (FIXED)
+        // ====================================================================
+        const PasswordInput = ({ value, onChange, placeholder, showPassword, setShowPassword, required = true }) => {
+            const handleInputChange = (e) => {
+                onChange(e.target.value);
+            };
+
+            return (
+                <div className="relative">
+                    <input
+                        type={showPassword ? "text" : "password"}
+                        value={value}
+                        onChange={handleInputChange}
+                        placeholder={placeholder}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 pr-10 password-input"
+                        required={required}
+                        autoComplete="current-password"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                    >
+                        {showPassword ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-eye-off">
+                                <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+                                <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+                                <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/>
+                                <line x1="2" x2="22" y1="2" y2="22"/>
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-eye">
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        )}
+                    </button>
+                </div>
+            );
+        };
+
+        // ====================================================================
+        // COMPONENT LOGIN SCREEN (SIMPLE EMAIL/PASSWORD)
+        // ====================================================================
+        const LoginScreen = ({ onLoginSuccess }) => {
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState(null);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [isCreatingAccount, setIsCreatingAccount] = useState(false);
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [showPassword, setShowPassword] = useState(false);
+            const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+            const [forgotPassword, setForgotPassword] = useState(false);
+            const [resetEmail, setResetEmail] = useState('');
+            const [newPassword, setNewPassword] = useState('');
+            const [confirmNewPassword, setConfirmNewPassword] = useState('');
+            const [showNewPassword, setShowNewPassword] = useState(false);
+            const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+            const [resetSuccess, setResetSuccess] = useState(false);
+
+            const validateEmail = (email) => {
+                const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                return re.test(email);
+            };
+
+            const validatePassword = (password) => {
+                return password.length >= 6;
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                setError(null);
+                setIsLoading(true);
+
+                // Validasi email
+                if (!validateEmail(email)) {
+                    setError('Format email tidak valid.');
+                    setIsLoading(false);
+                    return;
+                }
+
+                if (isCreatingAccount) {
+                    // Mode buat akun baru
+                    if (!validatePassword(password)) {
+                        setError('Password harus minimal 6 karakter.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    if (password !== confirmPassword) {
+                        setError('Password dan konfirmasi password tidak cocok.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Cek apakah user sudah ada
+                    const existingUser = UserStorageService.getUserData(email);
+                    if (existingUser) {
+                        setError('Akun dengan email ini sudah ada. Silakan login.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Buat user baru
+                    const success = UserStorageService.createUser(email, password);
+                    if (success) {
+                        UserStorageService.setCurrentUser(email);
+                        onLoginSuccess({
+                            email: email,
+                            name: email.split('@')[0]
+                        });
+                    } else {
+                        setError('Gagal membuat akun. Silakan coba lagi.');
+                    }
+                } else {
+                    // Mode login
+                    const userData = UserStorageService.getUserData(email);
+                    if (!userData) {
+                        setError('Akun tidak ditemukan. Silakan buat akun baru.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Verifikasi password
+                    if (!UserStorageService.verifyPassword(email, password)) {
+                        setError('Password salah. Silakan coba lagi.');
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    // Login berhasil
+                    UserStorageService.setCurrentUser(email);
+                    onLoginSuccess({
+                        email: email,
+                        name: userData.name
+                    });
+                }
+
+                setIsLoading(false);
+            };
+
+            const handleResetPassword = (e) => {
+                e.preventDefault();
+                setError(null);
+
+                if (!validateEmail(resetEmail)) {
+                    setError('Format email tidak valid.');
+                    return;
+                }
+
+                const userData = UserStorageService.getUserData(resetEmail);
+                if (!userData) {
+                    setError('Akun dengan email ini tidak ditemukan.');
+                    return;
+                }
+
+                if (!validatePassword(newPassword)) {
+                    setError('Password baru harus minimal 6 karakter.');
+                    return;
+                }
+
+                if (newPassword !== confirmNewPassword) {
+                    setError('Password baru dan konfirmasi password tidak cocok.');
+                    return;
+                }
+
+                // Update password
+                const success = UserStorageService.updatePassword(resetEmail, newPassword);
+                if (success) {
+                    setResetSuccess(true);
+                    setTimeout(() => {
+                        setForgotPassword(false);
+                        setResetSuccess(false);
+                        setResetEmail('');
+                        setNewPassword('');
+                        setConfirmNewPassword('');
+                    }, 3000);
+                } else {
+                    setError('Gagal mereset password. Silakan coba lagi.');
+                }
+            };
+
+            // Custom Logo Component untuk Trading
+            const TradingLogo = ({ size = "large" }) => {
+                const logoSize = size === "large" ? "w-20 h-20" : "w-12 h-12";
+                const textSize = size === "large" ? "text-3xl" : "text-xl";
+                
+                return (
+                    <div className={`flex flex-col items-center justify-center ${logoSize}`}>
+                        <div className="relative">
+                            {/* Chart Bars */}
+                            <div className="flex items-end space-x-1 mb-2">
+                                <div className="w-3 bg-green-400 rounded-t h-4"></div>
+                                <div className="w-3 bg-red-400 rounded-t h-6"></div>
+                                <div className="w-3 bg-green-400 rounded-t h-8"></div>
+                                <div className="w-3 bg-green-400 rounded-t h-10"></div>
+                                <div className="w-3 bg-red-400 rounded-t h-5"></div>
+                            </div>
+                            {/* Trend Line */}
+                            <div className="absolute -bottom-1 left-0 right-0">
+                                <svg width="100%" height="8" viewBox="0 0 60 8" className="text-blue-500">
+                                    <path 
+                                        d="M0,4 C10,0 20,8 30,4 C40,0 50,8 60,4" 
+                                        stroke="currentColor" 
+                                        strokeWidth="2" 
+                                        fill="none" 
+                                        strokeLinecap="round"
+                                    />
+                                </svg>
+                            </div>
+                        </div>
+                        <div className={`font-bold ${textSize} text-white mt-2 text-center`}>
+                            Your<span className="text-green-400">Trade</span>
+                        </div>
+                    </div>
+                );
+            };
+
+            if (forgotPassword) {
+                return (
+                    <div className="min-h-screen chart-background flex items-center justify-center p-4 trend-animate">
+                        <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 w-full max-w-md border border-white/20">
+                            {/* Header */}
+                            <div className="text-center mb-8">
+                                <div className="flex items-center justify-center mb-4">
+                                    <TradingLogo size="large" />
+                                </div>
+                                <h1 className="text-3xl font-bold text-gray-900 mb-2">Reset Password</h1>
+                                <p className="text-gray-600">Masukkan email dan password baru Anda</p>
+                            </div>
+
+                            {resetSuccess ? (
+                                <div className="text-center py-8">
+                                    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4">
+                                        <p className="font-semibold">Password berhasil direset!</p>
+                                        <p className="text-sm">Silakan login dengan password baru Anda.</p>
+                                    </div>
+                                    <button
+                                        onClick={() => setForgotPassword(false)}
+                                        className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition duration-300"
+                                    >
+                                        Kembali ke Login
+                                    </button>
+                                </div>
+                            ) : (
+                                <form onSubmit={handleResetPassword} className="space-y-4">
+                                    {error && (
+                                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                                            {error}
+                                        </div>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                        <input
+                                            type="email"
+                                            value={resetEmail}
+                                            onChange={(e) => setResetEmail(e.target.value)}
+                                            placeholder="email@example.com"
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                            required
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Password Baru</label>
+                                        <PasswordInput
+                                            value={newPassword}
+                                            onChange={setNewPassword}
+                                            placeholder="Minimal 6 karakter"
+                                            showPassword={showNewPassword}
+                                            setShowPassword={setShowNewPassword}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Konfirmasi Password Baru</label>
+                                        <PasswordInput
+                                            value={confirmNewPassword}
+                                            onChange={setConfirmNewPassword}
+                                            placeholder="Ulangi password baru"
+                                            showPassword={showConfirmNewPassword}
+                                            setShowPassword={setShowConfirmNewPassword}
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition duration-300"
+                                    >
+                                        Reset Password
+                                    </button>
+
+                                    <div className="text-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setForgotPassword(false)}
+                                            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                        >
+                                            Kembali ke Login
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen chart-background flex items-center justify-center p-4 trend-animate">
+                    <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-2xl p-8 w-full max-w-md border border-white/20">
+                        {/* Header */}
+                        <div className="text-center mb-8">
+                            <div className="flex items-center justify-center mb-4">
+                                <TradingLogo size="large" />
+                            </div>
+                            <h1 className="text-3xl font-bold text-gray-900 mb-2">Your Trade</h1>
+                            <p className="text-gray-600">
+                                {isCreatingAccount ? 'Buat Akun Baru' : 'Platform Jurnal Trading Forex Professional'}
+                            </p>
+                        </div>
+
+                        {/* Features untuk login */}
+                        {!isCreatingAccount && (
+                            <div className="space-y-3 mb-8">
+                                <div className="flex items-center text-sm text-gray-600">
+                                    <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Simpan & analisis semua trade Anda
+                                </div>
+                                <div className="flex items-center text-sm text-gray-600">
+                                    <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Grafik statistik performa trading
+                                </div>
+                                <div className="flex items-center text-sm text-gray-600">
+                                    <svg className="w-5 h-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Data tersimpan aman dengan akun Anda
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Login Form */}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            {error && (
+                                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                                    {error}
+                                </div>
+                            )}
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="email@example.com"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                    required
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <PasswordInput
+                                    value={password}
+                                    onChange={setPassword}
+                                    placeholder="Minimal 6 karakter"
+                                    showPassword={showPassword}
+                                    setShowPassword={setShowPassword}
+                                />
+                            </div>
+
+                            {isCreatingAccount && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Konfirmasi Password</label>
+                                    <PasswordInput
+                                        value={confirmPassword}
+                                        onChange={setConfirmPassword}
+                                        placeholder="Ulangi password"
+                                        showPassword={showConfirmPassword}
+                                        setShowPassword={setShowConfirmPassword}
+                                    />
+                                </div>
+                            )}
+
+                            {!isCreatingAccount && (
+                                <div className="text-right">
+                                    <button
+                                        type="button"
+                                        onClick={() => setForgotPassword(true)}
+                                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                    >
+                                        Lupa Password?
+                                    </button>
+                                </div>
+                            )}
+
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition duration-300 flex items-center justify-center"
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                                        {isCreatingAccount ? 'Membuat Akun...' : 'Masuk...'}
+                                    </>
+                                ) : (
+                                    isCreatingAccount ? 'Buat Akun' : 'Masuk'
+                                )}
+                            </button>
+                        </form>
+
+                        {/* Switch between Login and Create Account */}
+                        <div className="text-center mt-6">
+                            <button
+                                onClick={() => {
+                                    setIsCreatingAccount(!isCreatingAccount);
+                                    setError(null);
+                                }}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                            >
+                                {isCreatingAccount 
+                                    ? 'Sudah punya akun? Masuk di sini' 
+                                    : 'Belum punya akun? Buat akun baru'}
+                            </button>
+                        </div>
+
+                        <div className="text-center text-xs text-gray-500 mt-6">
+                            Dengan login, Anda menyetujui syarat dan ketentuan penggunaan Your Trade
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ====================================================================
+        // LOGIKA DEBOUNCE (untuk Auto-Save yang halus)
+        // ====================================================================
+        const useDebounce = (callback, delay) => {
+            const latestCallback = React.useRef();
+            const latestTimeout = React.useRef();
+
+            React.useEffect(() => {
+                latestCallback.current = callback;
+            }, [callback]);
+
+            return React.useCallback(function(...args) {
+                clearTimeout(latestTimeout.current);
+                latestTimeout.current = setTimeout(() => {
+                    latestCallback.current(...args);
+                }, delay);
+            }, [delay]);
+        };
+
+        // ====================================================================
+        // COMPONENT GRAFIK STATISTIK
+        // ====================================================================
+        const ChartsComponent = ({ entries }) => {
+            const chartRef1 = useRef(null);
+            const chartRef2 = useRef(null);
+            const chartRef3 = useRef(null);
+            const [charts, setCharts] = useState([]);
+
+            // Data untuk grafik
+            const chartData = useMemo(() => {
+                if (entries.length === 0) return null;
+
+                // Grafik 1: Profit/Loss per Bulan
+                const monthlyData = {};
+                entries.forEach(entry => {
+                    const date = new Date(entry.timestamp);
+                    const monthYear = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+                    if (!monthlyData[monthYear]) {
+                        monthlyData[monthYear] = 0;
+                    }
+                    monthlyData[monthYear] += parseFloat(entry.pnlUsd) || 0;
+                });
+
+                // Grafik 2: Distribusi Win/Loss
+                const resultData = {
+                    WIN: 0,
+                    LOSS: 0,
+                    BREAKEVEN: 0
+                };
+                entries.forEach(entry => {
+                    resultData[entry.result]++;
+                });
+
+                // Grafik 3: Performa per Metode Trading
+                const methodData = {};
+                entries.forEach(entry => {
+                    const method = entry.tradingMethod || 'Tidak Diketahui';
+                    if (!methodData[method]) {
+                        methodData[method] = { total: 0, pnl: 0 };
+                    }
+                    methodData[method].total++;
+                    methodData[method].pnl += parseFloat(entry.pnlUsd) || 0;
+                });
+
+                return {
+                    monthly: {
+                        labels: Object.keys(monthlyData).sort(),
+                        data: Object.keys(monthlyData).sort().map(key => monthlyData[key])
+                    },
+                    results: {
+                        labels: Object.keys(resultData),
+                        data: Object.keys(resultData).map(key => resultData[key]),
+                        colors: ['#10B981', '#EF4444', '#6B7280']
+                    },
+                    methods: {
+                        labels: Object.keys(methodData),
+                        data: Object.keys(methodData).map(key => methodData[key].pnl),
+                        colors: ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444']
+                    }
+                };
+            }, [entries]);
+
+            // Inisialisasi grafik
+            useEffect(() => {
+                if (!chartData) return;
+
+                const destroyCharts = () => {
+                    charts.forEach(chart => {
+                        if (chart) chart.destroy();
+                    });
+                };
+
+                destroyCharts();
+
+                const newCharts = [];
+
+                // Grafik 1: Profit/Loss Bulanan
+                if (chartRef1.current) {
+                    const ctx = chartRef1.current.getContext('2d');
+                    const chart1 = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: chartData.monthly.labels,
+                            datasets: [{
+                                label: 'Profit/Loss per Bulan (USD)',
+                                data: chartData.monthly.data,
+                                backgroundColor: chartData.monthly.data.map(val => 
+                                    val >= 0 ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'
+                                ),
+                                borderColor: chartData.monthly.data.map(val => 
+                                    val >= 0 ? 'rgb(16, 185, 129)' : 'rgb(239, 68, 68)'
+                                ),
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Profit/Loss Bulanan'
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                    newCharts.push(chart1);
+                }
+
+                // Grafik 2: Distribusi Win/Loss
+                if (chartRef2.current) {
+                    const ctx = chartRef2.current.getContext('2d');
+                    const chart2 = new Chart(ctx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: chartData.results.labels,
+                            datasets: [{
+                                data: chartData.results.data,
+                                backgroundColor: chartData.results.colors,
+                                borderWidth: 2,
+                                borderColor: '#ffffff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Distribusi Hasil Trading'
+                                },
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            }
+                        }
+                    });
+                    newCharts.push(chart2);
+                }
+
+                // Grafik 3: Performa Metode Trading
+                if (chartRef3.current) {
+                    const ctx = chartRef3.current.getContext('2d');
+                    const chart3 = new Chart(ctx, {
+                        type: 'pie',
+                        data: {
+                            labels: chartData.methods.labels,
+                            datasets: [{
+                                data: chartData.methods.data,
+                                backgroundColor: chartData.methods.colors,
+                                borderWidth: 2,
+                                borderColor: '#ffffff'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: 'Profit/Loss per Metode Trading'
+                                },
+                                legend: {
+                                    position: 'bottom'
+                                }
+                            }
+                        }
+                    });
+                    newCharts.push(chart3);
+                }
+
+                setCharts(newCharts);
+
+                return destroyCharts;
+            }, [chartData]);
+
+            if (entries.length === 0) {
+                return (
+                    <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4">Statistik Grafik</h2>
+                        <p className="text-gray-500 text-center">Belum ada data untuk ditampilkan dalam grafik.</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Statistik Grafik Trading</h2>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                            <canvas ref={chartRef1} width="400" height="200"></canvas>
+                        </div>
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                            <canvas ref={chartRef2} width="400" height="200"></canvas>
+                        </div>
+                        <div className="bg-gray-50 p-4 rounded-lg lg:col-span-2">
+                            <canvas ref={chartRef3} width="400" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ====================================================================
+        // COMPONENT JournalView (Tampilan Jurnal Trading)
+        // ====================================================================
+        const JournalView = ({ backToHome, journalName, entries, setEntries, isLoading, error, setError, totalStats, currentUser, onLogout }) => {
+            // State untuk form input (Draft State)
+            const [pair, setPair] = useState('');
+            const [entryPrice, setEntryPrice] = useState('');
+            const [stopLoss, setStopLoss] = useState('');
+            const [takeProfit, setTakeProfit] = useState('');
+            const [lotSize, setLotSize] = useState('0.01');
+            const [manualPnLUsd, setManualPnLUsd] = useState('');
+            const [result, setResult] = useState('WIN');
+            const [notes, setNotes] = useState('');
+            const [chartLink, setChartLink] = useState('');
+            const [tradingMethod, setTradingMethod] = useState('');
+            const [customMethod, setCustomMethod] = useState('');
+            const [showCustomMethod, setShowCustomMethod] = useState(false);
+            const [positionType, setPositionType] = useState('BUY'); // BUY or SELL
+            const [showCharts, setShowCharts] = useState(false);
+
+            // Trading Logo Component
+            const TradingLogo = ({ size = "small" }) => {
+                const logoSize = size === "small" ? "w-8 h-8" : "w-12 h-12";
+                const textSize = size === "small" ? "text-xl" : "text-2xl";
+                
+                return (
+                    <div className="flex items-center space-x-2">
+                        <div className={`flex flex-col items-center justify-center ${logoSize}`}>
+                            <div className="relative">
+                                {/* Chart Bars */}
+                                <div className="flex items-end space-x-0.5 mb-1">
+                                    <div className="w-1.5 bg-green-400 rounded-t h-2"></div>
+                                    <div className="w-1.5 bg-red-400 rounded-t h-3"></div>
+                                    <div className="w-1.5 bg-green-400 rounded-t h-4"></div>
+                                    <div className="w-1.5 bg-green-400 rounded-t h-5"></div>
+                                    <div className="w-1.5 bg-red-400 rounded-t h-2.5"></div>
+                                </div>
+                                {/* Trend Line */}
+                                <div className="absolute -bottom-0.5 left-0 right-0">
+                                    <svg width="100%" height="4" viewBox="0 0 40 4" className="text-blue-500">
+                                        <path 
+                                            d="M0,2 C6,0 12,4 18,2 C24,0 30,4 36,2" 
+                                            stroke="currentColor" 
+                                            strokeWidth="1.5" 
+                                            fill="none" 
+                                            strokeLinecap="round"
+                                        />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <span className={`font-bold ${textSize} text-gray-900`}>
+                            Your<span className="text-blue-600">Trade</span>
+                        </span>
+                    </div>
+                );
+            };
+
+            // Fungsi untuk handle perubahan Result (WIN/LOSS) - OTOMATIS MINUS JIKA LOSS
+            const handleResultChange = (newResult) => {
+                setResult(newResult);
+                
+                // Jika user mengubah dari WIN ke LOSS, dan ada nilai P&L, ubah jadi minus
+                if (newResult === 'LOSS' && manualPnLUsd && !manualPnLUsd.startsWith('-')) {
+                    const currentValue = parseFloat(manualPnLUsd);
+                    if (!isNaN(currentValue) && currentValue > 0) {
+                        setManualPnLUsd(`-${manualPnLUsd}`);
+                    }
+                }
+                // Jika user mengubah dari LOSS ke WIN, dan ada nilai P&L minus, ubah jadi plus
+                else if (newResult === 'WIN' && manualPnLUsd && manualPnLUsd.startsWith('-')) {
+                    const positiveValue = manualPnLUsd.substring(1);
+                    setManualPnLUsd(positiveValue);
+                }
+            };
+
+            // Fungsi untuk handle perubahan manual P&L - OTOMATIS SESUAI RESULT
+            const handleManualPnLChange = (value) => {
+                setManualPnLUsd(value);
+                
+                // Jika user mengisi nilai positif tapi Result adalah LOSS, otomatis ubah jadi minus
+                if (result === 'LOSS' && value && !value.startsWith('-') && !isNaN(parseFloat(value)) && parseFloat(value) > 0) {
+                    setManualPnLUsd(`-${value}`);
+                }
+            };
+
+            // Muat Draf dari Local Storage saat jurnal aktif berubah
+            useEffect(() => {
+                const draft = localStorage.getItem(DRAFT_STORAGE_KEY_PREFIX + currentUser.email + '_' + journalName);
+                if (draft) {
+                    try {
+                        const parsedDraft = JSON.parse(draft);
+                        setPair(parsedDraft.pair || '');
+                        setEntryPrice(parsedDraft.entryPrice || '');
+                        setStopLoss(parsedDraft.stopLoss || '');
+                        setTakeProfit(parsedDraft.takeProfit || '');
+                        setLotSize(parsedDraft.lotSize || '0.01');
+                        setManualPnLUsd(parsedDraft.manualPnLUsd || '');
+                        setResult(parsedDraft.result || 'WIN');
+                        setNotes(parsedDraft.notes || '');
+                        setChartLink(parsedDraft.chartLink || '');
+                        setTradingMethod(parsedDraft.tradingMethod || '');
+                        setCustomMethod(parsedDraft.customMethod || '');
+                        setShowCustomMethod(parsedDraft.showCustomMethod || false);
+                        setPositionType(parsedDraft.positionType || 'BUY');
+                    } catch (e) {
+                        console.error("Gagal memuat draft:", e);
+                    }
+                }
+            }, [journalName, currentUser.email]);
+
+            // Auto-Save Draf menggunakan Debounce
+            const currentDraft = useMemo(() => ({
+                pair, entryPrice, stopLoss, takeProfit, lotSize, manualPnLUsd, result, 
+                notes, chartLink, tradingMethod, customMethod, showCustomMethod, positionType
+            }), [pair, entryPrice, stopLoss, takeProfit, lotSize, manualPnLUsd, result, 
+                notes, chartLink, tradingMethod, customMethod, showCustomMethod, positionType]);
+
+            const saveDraft = useCallback(() => {
+                try {
+                    localStorage.setItem(DRAFT_STORAGE_KEY_PREFIX + currentUser.email + '_' + journalName, JSON.stringify(currentDraft));
+                } catch (e) {
+                    console.error("Gagal menyimpan draft ke localStorage:", e);
+                }
+            }, [currentUser.email, journalName, currentDraft]);
+
+            const debouncedSaveDraft = useDebounce(saveDraft, 1000);
+
+            useEffect(() => {
+                if (journalName && currentUser.email) {
+                    debouncedSaveDraft();
+                }
+            }, [currentDraft, debouncedSaveDraft, journalName, currentUser.email]);
+
+            // Perhitungan P&L teoritis dan aktual - DIPERBAIKI untuk BUY/SELL
+            const calculatedPnL = useMemo(() => {
+                const ePrice = parseFloat(entryPrice);
+                const slPrice = parseFloat(stopLoss);
+                const tpPrice = parseFloat(takeProfit);
+                const lSize = parseFloat(lotSize);
+                const manualPnL = parseFloat(manualPnLUsd);
+
+                if (isNaN(ePrice) || isNaN(slPrice) || isNaN(tpPrice) || isNaN(lSize) || lSize <= 0) {
+                    return { theoreticalRiskPips: 0, theoreticalRewardPips: 0, theoreticalRiskUsd: 0, calculatedPips: 0, calculatedPnLUsd: 0, rrRatio: 'N/A' };
+                }
+                
+                // PERHITUNGAN YANG BENAR UNTUK BUY/SELL
+                let theoreticalRiskPips, theoreticalRewardPips;
+                
+                if (positionType === 'BUY') {
+                    // BUY: SL di bawah entry, TP di atas entry
+                    theoreticalRiskPips = Math.abs(ePrice - slPrice) * PIP_FACTOR;
+                    theoreticalRewardPips = Math.abs(tpPrice - ePrice) * PIP_FACTOR;
+                } else {
+                    // SELL: SL di atas entry, TP di bawah entry
+                    theoreticalRiskPips = Math.abs(slPrice - ePrice) * PIP_FACTOR;
+                    theoreticalRewardPips = Math.abs(ePrice - tpPrice) * PIP_FACTOR;
+                }
+                
+                const theoreticalRiskUsd = theoreticalRiskPips * (RATE_PER_LOT_PER_PIP * lSize / PIP_FACTOR);
+
+                let calculatedPips = 0;
+                let calculatedPnLUsd = 0;
+
+                if (!isNaN(manualPnL) && manualPnLUsd !== '') {
+                    calculatedPnLUsd = manualPnL;
+                    calculatedPips = lSize > 0 ? (calculatedPnLUsd * PIP_FACTOR) / (RATE_PER_LOT_PER_PIP * lSize) : 0;
+                } else if (result !== 'BREAKEVEN' && (entryPrice || stopLoss || takeProfit)) {
+                    calculatedPnLUsd = 0;
+                }
+                
+                const rrRatio = theoreticalRiskPips > 0 ? (theoreticalRewardPips / theoreticalRiskPips).toFixed(2) : 'N/A';
+                
+                return { 
+                    theoreticalRiskPips: theoreticalRiskPips.toFixed(1),
+                    theoreticalRewardPips: theoreticalRewardPips.toFixed(1),
+                    theoreticalRiskUsd: theoreticalRiskUsd.toFixed(2),
+                    calculatedPips: calculatedPips.toFixed(1),
+                    calculatedPnLUsd: calculatedPnLUsd.toFixed(2),
+                    rrRatio: rrRatio,
+                };
+            }, [entryPrice, stopLoss, takeProfit, lotSize, manualPnLUsd, result, positionType]);
+
+            // Fungsi untuk Menambah Entri (SAVE JURNAL) - MENGGUNAKAN USER STORAGE
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError(null);
+                
+                const { calculatedPips, calculatedPnLUsd, theoreticalRiskUsd } = calculatedPnL;
+                
+                if (!pair || !entryPrice || !stopLoss || !takeProfit || !lotSize || !notes) {
+                    setError('Harap lengkapi semua bidang yang bertanda *.');
+                    return;
+                }
+                
+                // Validasi: Jika LOSS, P&L harus minus. Jika WIN, P&L harus plus.
+                const pnlValue = parseFloat(manualPnLUsd);
+                if (result !== 'BREAKEVEN') {
+                    if (isNaN(pnlValue)) {
+                        setError('Harap isi P&L Aktual (USD) dengan angka yang valid.');
+                        return;
+                    }
+                    if (result === 'LOSS' && pnlValue >= 0) {
+                        setError('Untuk hasil LOSS, P&L harus bernilai negatif (contoh: -20).');
+                        return;
+                    }
+                    if (result === 'WIN' && pnlValue <= 0) {
+                        setError('Untuk hasil WIN, P&L harus bernilai positif (contoh: 20).');
+                        return;
+                    }
+                }
+
+                // Tentukan metode trading yang digunakan
+                const finalTradingMethod = showCustomMethod ? customMethod : tradingMethod;
+                
+                if (!finalTradingMethod) {
+                    setError('Harap pilih atau buat metode trading.');
+                    return;
+                }
+
+                const newEntry = {
+                    id: Date.now().toString() + Math.random().toString(36).substr(2, 9), // ID unik
+                    journalName: journalName,
+                    pair,
+                    entryPrice: parseFloat(entryPrice),
+                    stopLoss: parseFloat(stopLoss),
+                    takeProfit: parseFloat(takeProfit),
+                    lotSize: parseFloat(lotSize),
+                    result,
+                    positionType, // TAMBAHAN: BUY/SELL
+                    notes,
+                    chartLink,
+                    tradingMethod: finalTradingMethod,
+                    pips: parseFloat(calculatedPips),
+                    pnlUsd: parseFloat(calculatedPnLUsd),
+                    riskUsd: parseFloat(theoreticalRiskUsd),
+                    timestamp: new Date().toISOString(),
+                };
+
+                try {
+                    // Simpan ke user storage
+                    const updatedEntries = [newEntry, ...entries];
+                    const success = UserStorageService.saveJournalEntries(currentUser.email, journalName, updatedEntries);
+                    
+                    if (success) {
+                        setEntries(updatedEntries);
+                        
+                        // Bersihkan formulir dan hapus draft setelah sukses
+                        setPair('');
+                        setEntryPrice('');
+                        setStopLoss('');
+                        setTakeProfit('');
+                        setLotSize('0.01');
+                        setManualPnLUsd('');
+                        setResult('WIN');
+                        setNotes('');
+                        setChartLink('');
+                        setTradingMethod('');
+                        setCustomMethod('');
+                        setShowCustomMethod(false);
+                        setPositionType('BUY');
+                        localStorage.removeItem(DRAFT_STORAGE_KEY_PREFIX + currentUser.email + '_' + journalName);
+                    } else {
+                        setError('Gagal menyimpan entri. Coba lagi.');
+                    }
+                } catch (e) {
+                    console.error("Gagal menambahkan entri jurnal:", e);
+                    setError(`Gagal menyimpan entri. Error: ${e.message}`);
+                }
+            };
+
+            // Fungsi untuk menghapus entri
+            const handleDeleteEntry = (entryId) => {
+                if (window.confirm('Apakah Anda yakin ingin menghapus entri ini?')) {
+                    const updatedEntries = entries.filter(entry => entry.id !== entryId);
+                    const success = UserStorageService.saveJournalEntries(currentUser.email, journalName, updatedEntries);
+                    if (success) {
+                        setEntries(updatedEntries);
+                    } else {
+                        setError('Gagal menghapus entri. Coba lagi.');
+                    }
+                }
+            };
+            
+            return (
+                <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+                    {/* Header dengan User Info */}
+                    <div className="flex justify-between items-center mb-6">
+                        <button 
+                            onClick={backToHome} 
+                            className="flex items-center text-blue-600 hover:text-blue-800 transition duration-150 font-medium"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-arrow-left mr-2"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+                            Kembali ke Daftar Jurnal
+                        </button>
+                        
+                        <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                    {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                                </div>
+                                <span className="text-sm text-gray-600">Halo, {currentUser.name}</span>
+                            </div>
+                            <button
+                                onClick={onLogout}
+                                className="flex items-center px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition duration-150"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-log-out mr-1"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between items-center mb-6">
+                        <div className="flex items-center space-x-4">
+                            <TradingLogo size="small" />
+                            <h1 className="text-3xl font-extrabold text-gray-900">: <span className="text-blue-600">{journalName}</span></h1>
+                        </div>
+                        <button
+                            onClick={() => setShowCharts(!showCharts)}
+                            className="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg shadow transition duration-150"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bar-chart-3 mr-2">
+                                <path d="M3 3v18h18"/>
+                                <path d="M18 17V9"/>
+                                <path d="M13 17V5"/>
+                                <path d="M8 17v-3"/>
+                            </svg>
+                            {showCharts ? 'Sembunyikan Grafik' : 'Tampilkan Grafik'}
+                        </button>
+                    </div>
+                    
+                    {/* Ringkasan Trading Stats */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                        <StatCard title="Total Trade" value={totalStats.totalTrades} color="blue" />
+                        <StatCard title="Total Win" value={totalStats.totalWins} color="green" />
+                        <StatCard title="Win Rate" value={`${totalStats.winRate}%`} color="indigo" />
+                        <StatCard title="P&L Total (USD)" value={`$${totalStats.totalPnLUsd}`} color={totalStats.totalPnLUsd >= 0 ? 'green' : 'red'} />
+                    </div>
+
+                    {/* Tampilkan Grafik jika diaktifkan */}
+                    {showCharts && <ChartsComponent entries={entries} />}
+
+                    {/* Statistik Metode Trading */}
+                    <div className="bg-white p-6 rounded-xl shadow-lg mb-8 border border-gray-200">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Statistik Metode Trading</h2>
+                        <MethodStats entries={entries} />
+                    </div>
+
+                    {/* Form Input Entri Baru */}
+                    <div className="bg-white p-6 rounded-xl shadow-2xl mb-8 border border-gray-200">
+                        <h2 className="text-xl font-bold text-gray-800 mb-4 border-b pb-2">Tambah Entri Trading Baru</h2>
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            
+                            {/* Baris 1: Pair dan Position Type */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Input label="Pasangan (Pair)" value={pair} onChange={setPair} type="text" placeholder="Contoh: EURUSD" required={true} />
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tipe Posisi <span className="text-red-500">*</span></label>
+                                    <div className="flex space-x-4">
+                                        <label className="flex items-center">
+                                            <input
+                                                type="radio"
+                                                value="BUY"
+                                                checked={positionType === 'BUY'}
+                                                onChange={(e) => setPositionType(e.target.value)}
+                                                className="mr-2 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span className={`px-3 py-2 rounded-lg font-medium ${
+                                                positionType === 'BUY' 
+                                                    ? 'bg-green-100 text-green-800 border-2 border-green-500' 
+                                                    : 'bg-gray-100 text-gray-600 border-2 border-gray-300'
+                                            }`}>
+                                                BUY
+                                            </span>
+                                        </label>
+                                        <label className="flex items-center">
+                                            <input
+                                                type="radio"
+                                                value="SELL"
+                                                checked={positionType === 'SELL'}
+                                                onChange={(e) => setPositionType(e.target.value)}
+                                                className="mr-2 text-red-600 focus:ring-red-500"
+                                            />
+                                            <span className={`px-3 py-2 rounded-lg font-medium ${
+                                                positionType === 'SELL' 
+                                                    ? 'bg-red-100 text-red-800 border-2 border-red-500' 
+                                                    : 'bg-gray-100 text-gray-600 border-2 border-gray-300'
+                                            }`}>
+                                                SELL
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Baris 2: Detail Entri */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <Input label="Harga Masuk (Entry Price)" value={entryPrice} onChange={setEntryPrice} type="number" step="any" placeholder="1.08500" required={true} />
+                                <Input label="SL (Stop Loss)" value={stopLoss} onChange={setStopLoss} type="number" step="any" placeholder={positionType === 'BUY' ? "1.08000" : "1.09000"} required={true} />
+                                <Input label="TP (Take Profit)" value={takeProfit} onChange={setTakeProfit} type="number" step="any" placeholder={positionType === 'BUY' ? "1.09000" : "1.08000"} required={true} />
+                            </div>
+                            
+                            {/* Baris 3: Lot, Hasil, P&L Manual */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                <Input label="Lot Size" value={lotSize} onChange={setLotSize} type="number" step="0.01" min="0.01" placeholder="0.10" required={true} />
+                                
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Hasil Akhir</label>
+                                    <select
+                                        value={result}
+                                        onChange={(e) => handleResultChange(e.target.value)}
+                                        className="w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500"
+                                    >
+                                        <option value="WIN">WIN</option>
+                                        <option value="LOSS">LOSS</option>
+                                        <option value="BREAKEVEN">BREAKEVEN</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        P&L Aktual (USD) 
+                                        {result !== 'BREAKEVEN' && <span className="text-red-500">*</span>}
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={manualPnLUsd}
+                                        onChange={(e) => handleManualPnLChange(e.target.value)}
+                                        step="any"
+                                        placeholder={result === 'WIN' ? "Contoh: 20" : result === 'LOSS' ? "Contoh: -20" : "0"}
+                                        required={result !== 'BREAKEVEN'}
+                                        className={`w-full p-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500 ${
+                                            result === 'WIN' && parseFloat(manualPnLUsd) > 0 ? 'border-green-500 bg-green-50' :
+                                            result === 'LOSS' && parseFloat(manualPnLUsd) < 0 ? 'border-red-500 bg-red-50' :
+                                            'border-gray-300'
+                                        }`}
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        {result === 'WIN' ? '✓ Isi nilai positif' : 
+                                         result === 'LOSS' ? '✓ Isi nilai negatif' : 
+                                         'Tidak perlu isi P&L'}
+                                    </p>
+                                </div>
+                                
+                                <div className="p-3 bg-blue-50 rounded-lg text-sm font-medium text-blue-700 shadow-inner flex flex-col justify-center h-full">
+                                    <p>Rasio R:R: <span className="font-extrabold">{calculatedPnL.rrRatio}</span></p>
+                                    <p className="mt-1 text-xs text-blue-500">Risiko Teoritis: ${calculatedPnL.theoreticalRiskUsd}</p>
+                                    <p className="mt-1 text-xs text-blue-500">Posisi: {positionType}</p>
+                                </div>
+                            </div>
+                            
+                            {/* Baris 4: Metode Trading */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Metode Trading <span className="text-red-500">*</span></label>
+                                    <div className="space-y-2">
+                                        <select
+                                            value={tradingMethod}
+                                            onChange={(e) => {
+                                                setTradingMethod(e.target.value);
+                                                setShowCustomMethod(e.target.value === 'CUSTOM');
+                                            }}
+                                            className="w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500"
+                                        >
+                                            <option value="">Pilih Metode Trading</option>
+                                            {DEFAULT_TRADING_METHODS.map(method => (
+                                                <option key={method} value={method}>{method}</option>
+                                            ))}
+                                            <option value="CUSTOM">Buat Metode Baru</option>
+                                        </select>
+                                        
+                                        {showCustomMethod && (
+                                            <input
+                                                type="text"
+                                                value={customMethod}
+                                                onChange={(e) => setCustomMethod(e.target.value)}
+                                                placeholder="Nama metode trading baru..."
+                                                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                                                required
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Baris 5: Catatan & Tautan Chart */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Catatan & Alasan Trading <span className="text-red-500">*</span></label>
+                                <textarea 
+                                    value={notes} 
+                                    onChange={(e) => setNotes(e.target.value)} 
+                                    rows="4" 
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 resize-y" 
+                                    placeholder="Jelaskan setup, konfirmasi, dan pelajaran yang didapat..."
+                                    required
+                                ></textarea>
+                            </div>
+
+                            <Input label="Tautan Chart (TradingView/Screenshot)" value={chartLink} onChange={setChartLink} type="url" placeholder="https://..." required={false} />
+
+                            {error && <p className="p-3 bg-red-100 text-red-700 rounded-lg font-medium">{error}</p>}
+                            
+                            {/* Tombol Simpan */}
+                            <button
+                                type="submit"
+                                className="w-full py-3 px-4 rounded-lg text-white font-semibold transition duration-300 bg-green-600 hover:bg-green-700 shadow-md hover:shadow-lg flex items-center justify-center mt-6"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-save mr-2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v8"/><path d="M7 3v4"/></svg>
+                                Simpan Entri Trading
+                            </button>
+                            
+                            <p className="text-center text-sm text-gray-500 italic">
+                                Draf saat ini **tersimpan otomatis** di browser (Local Draft) untuk jurnal ini.
+                            </p>
+                        </form>
+                    </div>
+
+                    {/* Daftar Entri Jurnal */}
+                    <EntryList entries={entries} isLoading={isLoading} onDeleteEntry={handleDeleteEntry} />
+                </div>
+            );
+        };
+
+        // ====================================================================
+        // COMPONENT MethodStats (Statistik Metode Trading)
+        // ====================================================================
+        const MethodStats = ({ entries }) => {
+            const methodStats = useMemo(() => {
+                const stats = {};
+                
+                entries.forEach(entry => {
+                    const method = entry.tradingMethod || 'Tidak Diketahui';
+                    if (!stats[method]) {
+                        stats[method] = {
+                            total: 0,
+                            wins: 0,
+                            losses: 0,
+                            breakeven: 0,
+                            totalPnL: 0,
+                            buy: 0,
+                            sell: 0
+                        };
+                    }
+                    
+                    stats[method].total++;
+                    stats[method].totalPnL += (parseFloat(entry.pnlUsd) || 0);
+                    
+                    if (entry.result === 'WIN') stats[method].wins++;
+                    else if (entry.result === 'LOSS') stats[method].losses++;
+                    else if (entry.result === 'BREAKEVEN') stats[method].breakeven++;
+                    
+                    if (entry.positionType === 'BUY') stats[method].buy++;
+                    else if (entry.positionType === 'SELL') stats[method].sell++;
+                });
+                
+                return stats;
+            }, [entries]);
+
+            if (Object.keys(methodStats).length === 0) {
+                return <p className="text-gray-500 text-center">Belum ada data metode trading.</p>;
+            }
+
+            return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Object.entries(methodStats).map(([method, data]) => {
+                        const winRate = data.total > 0 ? ((data.wins / data.total) * 100).toFixed(1) : 0;
+                        return (
+                            <div key={method} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                <h3 className="font-bold text-gray-800 mb-2">{method}</h3>
+                                <div className="space-y-1 text-sm">
+                                    <p>Total Trade: <span className="font-semibold">{data.total}</span></p>
+                                    <p>Win Rate: <span className="font-semibold">{winRate}%</span></p>
+                                    <p>W/L/BE: <span className="font-semibold">{data.wins}/{data.losses}/{data.breakeven}</span></p>
+                                    <p>Buy/Sell: <span className="font-semibold">{data.buy}/{data.sell}</span></p>
+                                    <p>Total P&L: <span className={`font-semibold ${data.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        ${data.totalPnL.toFixed(2)}
+                                    </span></p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        };
+        
+        // ====================================================================
+        // COMPONENT HomeView (Layar Utama)
+        // ====================================================================
+        const HomeView = ({ journalList, setActiveJournal, createNewJournal, deleteJournal, isLoading, currentUser, onLogout }) => {
+            const [newJournalName, setNewJournalName] = useState('');
+            const [createError, setCreateError] = useState(null);
+
+            // Trading Logo Component
+            const TradingLogo = ({ size = "small" }) => {
+                const logoSize = size === "small" ? "w-8 h-8" : "w-12 h-12";
+                const textSize = size === "small" ? "text-xl" : "text-2xl";
+                
+                return (
+                    <div className="flex items-center space-x-2">
+                        <div className={`flex flex-col items-center justify-center ${logoSize}`}>
+                            <div className="relative">
+                                {/* Chart Bars */}
+                                <div className="flex items-end space-x-0.5 mb-1">
+                                    <div className="w-1.5 bg-green-400 rounded-t h-2"></div>
+                                    <div className="w-1.5 bg-red-400 rounded-t h-3"></div>
+                                    <div className="w-1.5 bg-green-400 rounded-t h-4"></div>
+                                    <div className="w-1.5 bg-green-400 rounded-t h-5"></div>
+                                    <div className="w-1.5 bg-red-400 rounded-t h-2.5"></div>
+                                </div>
+                                {/* Trend Line */}
+                                <div className="absolute -bottom-0.5 left-0 right-0">
+                                    <svg width="100%" height="4" viewBox="0 0 40 4" className="text-blue-500">
+                                        <path 
+                                            d="M0,2 C6,0 12,4 18,2 C24,0 30,4 36,2" 
+                                            stroke="currentColor" 
+                                            strokeWidth="1.5" 
+                                            fill="none" 
+                                            strokeLinecap="round"
+                                        />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <span className={`font-bold ${textSize} text-gray-900`}>
+                            Your<span className="text-blue-600">Trade</span>
+                        </span>
+                    </div>
+                );
+            };
+
+            const handleCreate = () => {
+                const trimmedName = newJournalName.trim();
+                if (!trimmedName) {
+                    setCreateError('Nama jurnal tidak boleh kosong.');
+                    return;
+                }
+                if (journalList.includes(trimmedName)) {
+                    setCreateError('Jurnal dengan nama ini sudah ada.');
+                    return;
+                }
+                createNewJournal(trimmedName);
+                setNewJournalName('');
+                setCreateError(null);
+            };
+
+            const handleDeleteJournal = (journalName, e) => {
+                e.stopPropagation();
+                if (window.confirm(`Apakah Anda yakin ingin menghapus jurnal "${journalName}"? Semua data akan hilang.`)) {
+                    deleteJournal(journalName);
+                }
+            };
+
+            return (
+                <div className="p-4 sm:p-8 max-w-xl mx-auto min-h-screen">
+                    {/* Header dengan User Info */}
+                    <div className="flex justify-between items-center mb-8">
+                        <TradingLogo size="small" />
+                        <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-sm">
+                                    {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                                </div>
+                                <span className="text-sm text-gray-600 hidden sm:block">Halo, {currentUser.name}</span>
+                            </div>
+                            <button
+                                onClick={onLogout}
+                                className="flex items-center px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition duration-150"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-log-out mr-1"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="w-full bg-white p-6 rounded-xl shadow-2xl mb-8 border-t-4 border-blue-600">
+                        <div className="flex items-center justify-between mb-4 pb-2 border-b">
+                            <h2 className="text-2xl font-bold text-gray-800 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-folder-open mr-2 text-blue-500"><path d="m6 14 1.5-2A2 2 0 0 1 9 11h6a2 2 0 0 1 1.5 1l1.5 2"/><path d="M2 17c1.67 0 2.82-1.33 3.5-4C6.18 10.33 7.33 9 9 9h6c1.67 0 2.82 1.33 3.5 4 .68 2.67 1.83 4 3.5 4H2z"/></svg>
+                                Pilih Jurnal Anda
+                            </h2>
+                        </div>
+                        
+                        {isLoading ? (
+                            <div className="text-center py-8 text-gray-500">Memuat daftar jurnal...</div>
+                        ) : (
+                            <div className="space-y-3">
+                                {journalList.length === 0 ? (
+                                    <p className="text-center text-gray-500 italic">Belum ada jurnal yang tersimpan.</p>
+                                ) : (
+                                    journalList.map((name) => (
+                                        <div key={name} className="flex items-center group">
+                                            <button
+                                                onClick={() => setActiveJournal(name)}
+                                                className="flex-grow text-left p-4 bg-gray-100 hover:bg-blue-100 text-gray-800 hover:text-blue-800 rounded-lg shadow-sm transition duration-150 flex justify-between items-center font-semibold border-l-4 border-gray-400 hover:border-blue-600"
+                                            >
+                                                {name}
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right ml-2"><path d="m9 18 6-6-6-6"/></svg>
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDeleteJournal(name, e)}
+                                                className="ml-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-lg transition duration-150 opacity-0 group-hover:opacity-100"
+                                                title="Hapus Jurnal"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Tambah Jurnal Baru */}
+                    <div className="w-full bg-indigo-50 p-6 rounded-xl shadow-lg border-t-4 border-indigo-600">
+                        <h2 className="text-xl font-bold text-indigo-800 mb-4 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-plus-square mr-2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+                            Buat Jurnal Baru
+                        </h2>
+                        <div className="flex space-x-2">
+                            <input
+                                type="text"
+                                value={newJournalName}
+                                onChange={(e) => setNewJournalName(e.target.value)}
+                                placeholder="Nama Jurnal Baru (Contoh: Akun Demo 2025)"
+                                className="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                            />
+                            <button
+                                onClick={handleCreate}
+                                className="py-3 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow transition duration-150"
+                            >
+                                Buat & Masuk
+                            </button>
+                        </div>
+                        {createError && <p className="mt-3 text-red-600 font-medium p-2 bg-red-100 rounded-md">{createError}</p>}
+                    </div>
+                </div>
+            );
+        };
+
+
+        // ====================================================================
+        // COMPONENT UTAMA APP (State Management)
+        // ====================================================================
+        const App = () => {
+            const [entries, setEntries] = useState([]);
+            const [journalList, setJournalList] = useState([]); 
+            const [isLoading, setIsLoading] = useState(false);
+            const [error, setError] = useState(null);
+            
+            // State untuk View Mode dan Jurnal Aktif
+            const [viewMode, setViewMode] = useState('LOGIN'); // 'LOGIN', 'HOME' atau 'JOURNAL'
+            const [journalName, setJournalName] = useState(null); 
+            const [currentUser, setCurrentUser] = useState(null);
+
+            // Cek apakah user sudah login saat aplikasi dimulai
+            useEffect(() => {
+                const savedUserEmail = UserStorageService.getCurrentUser();
+                if (savedUserEmail) {
+                    const userData = UserStorageService.getUserData(savedUserEmail);
+                    if (userData) {
+                        setCurrentUser({
+                            email: savedUserEmail,
+                            name: userData.name || savedUserEmail.split('@')[0]
+                        });
+                        setViewMode('HOME');
+                        
+                        // Load journal list for this user
+                        const journals = UserStorageService.getJournalList(savedUserEmail);
+                        setJournalList(journals);
+                    }
+                }
+            }, []);
+
+            // Handle successful login
+            const handleLoginSuccess = (user) => {
+                setCurrentUser(user);
+                setViewMode('HOME');
+                
+                // Load journal list for this user
+                const journals = UserStorageService.getJournalList(user.email);
+                setJournalList(journals);
+            };
+
+            // Handle logout
+            const handleLogout = () => {
+                UserStorageService.logoutUser();
+                setCurrentUser(null);
+                setViewMode('LOGIN');
+                setJournalList([]);
+                setEntries([]);
+                setJournalName(null);
+            };
+
+            // Muat entri saat jurnal aktif berubah
+            useEffect(() => {
+                if (journalName && viewMode === 'JOURNAL' && currentUser) {
+                    setIsLoading(true);
+                    // Simulate loading
+                    setTimeout(() => {
+                        const journalEntries = UserStorageService.getJournalEntries(currentUser.email, journalName);
+                        setEntries(journalEntries);
+                        setIsLoading(false);
+                    }, 500);
+                }
+            }, [journalName, viewMode, currentUser]);
+            
+            // Logika perhitungan Statistik (Total Stats)
+            const totalStats = useMemo(() => {
+                const total = entries.length;
+                if (total === 0) return { winRate: 0, totalTrades: 0, totalWins: 0, totalPnLUsd: 0, totalTheoreticalRiskUsd: 0 };
+
+                const wins = entries.filter(e => e.result === 'WIN').length;
+                const rate = (wins / total) * 100;
+
+                let totalPnL = 0;
+                let totalRisk = 0; 
+
+                entries.forEach(entry => {
+                    totalPnL += (parseFloat(entry.pnlUsd) || 0);
+                    totalRisk += (parseFloat(entry.riskUsd) || 0);
+                });
+
+                return {
+                    winRate: rate.toFixed(2),
+                    totalTrades: total,
+                    totalWins: wins,
+                    totalPnLUsd: totalPnL.toFixed(2),
+                    totalTheoreticalRiskUsd: totalRisk.toFixed(2) 
+                };
+            }, [entries]);
+
+            // Handler untuk memilih jurnal dari HomeView
+            const handleSetActiveJournal = (name) => {
+                setJournalName(name);
+                setViewMode('JOURNAL');
+            };
+
+            // Handler untuk membuat dan langsung masuk ke jurnal baru
+            const handleCreateNewJournal = (name) => {
+                if (!currentUser) return;
+                
+                // Buat jurnal baru dengan data KOSONG
+                UserStorageService.saveJournalEntries(currentUser.email, name, []);
+                
+                // Tambahkan nama jurnal baru ke daftar
+                const updatedList = [...journalList, name].sort();
+                UserStorageService.saveJournalList(currentUser.email, updatedList);
+                setJournalList(updatedList);
+                
+                // Masuk ke jurnal baru
+                handleSetActiveJournal(name);
+            };
+
+            // Handler untuk menghapus jurnal
+            const handleDeleteJournal = (name) => {
+                if (!currentUser) return;
+                
+                const success = UserStorageService.deleteJournal(currentUser.email, name);
+                if (success) {
+                    const updatedList = journalList.filter(journal => journal !== name);
+                    setJournalList(updatedList);
+                    
+                    // Jika jurnal yang dihapus sedang aktif, kembali ke home
+                    if (journalName === name) {
+                        setViewMode('HOME');
+                        setJournalName(null);
+                    }
+                }
+            };
+
+            if (error) {
+                return (
+                    <div className="p-8 max-w-2xl mx-auto bg-red-100 border border-red-400 text-red-700 rounded-lg mt-10 shadow-lg">
+                        <h2 className="text-xl font-bold mb-4">Kesalahan Fatal</h2>
+                        <p>{error}</p>
+                        <p className="mt-2 text-sm">Coba muat ulang atau periksa log konsol.</p>
+                    </div>
+                );
+            }
+
+            if (viewMode === 'LOGIN') {
+                return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+            }
+
+            if (viewMode === 'HOME' && currentUser) {
+                return (
+                    <HomeView 
+                        journalList={journalList} 
+                        setActiveJournal={handleSetActiveJournal} 
+                        createNewJournal={handleCreateNewJournal}
+                        deleteJournal={handleDeleteJournal}
+                        isLoading={isLoading}
+                        currentUser={currentUser}
+                        onLogout={handleLogout}
+                    />
+                );
+            }
+
+            if (viewMode === 'JOURNAL' && journalName && currentUser) {
+                return (
+                    <JournalView 
+                        backToHome={() => setViewMode('HOME')} 
+                        journalName={journalName} 
+                        entries={entries} 
+                        setEntries={setEntries}
+                        isLoading={isLoading} 
+                        error={error} 
+                        setError={setError}
+                        totalStats={totalStats}
+                        currentUser={currentUser}
+                        onLogout={handleLogout}
+                    />
+                );
+            }
+            
+            return <div className="flex items-center justify-center min-h-screen"><p className="text-xl text-blue-600">Memuat Your Trade...</p></div>;
+        };
+
+        // ====================================================================
+        // KOMPONEN-KOMPONEN UI SEDERHANA
+        // ====================================================================
+        const Input = ({ label, value, onChange, type = 'text', step, placeholder, required = false, min }) => (
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{label} {required && <span className="text-red-500">*</span>}</label>
+                <input
+                    type={type}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    step={step}
+                    placeholder={placeholder}
+                    min={min}
+                    required={required}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                />
+            </div>
+        );
+
+        const Select = ({ label, value, onChange, options }) => (
+            <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                <select
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500"
+                >
+                    {options.map(option => (
+                        <option key={option} value={option}>{option}</option>
+                    ))}
+                </select>
+            </div>
+        );
+
+        const StatCard = ({ title, value, color }) => {
+            const colorClasses = {
+                blue: 'bg-blue-600',
+                green: 'bg-green-600',
+                red: 'bg-red-600',
+                indigo: 'bg-indigo-600',
+                gray: 'bg-gray-600',
+            };
+            return (
+                <div className={`${colorClasses[color] || colorClasses.gray} p-4 rounded-xl shadow-lg text-white`}>
+                    <p className="text-sm font-light opacity-80">{title}</p>
+                    <p className="text-2xl font-extrabold mt-1">{value}</p>
+                </div>
+            );
+        };
+        
+        const EntryList = ({ entries, isLoading, onDeleteEntry }) => {
+            if (isLoading) {
+                return (
+                    <div className="text-center p-10 bg-white rounded-xl shadow-md">
+                        <div className="animate-spin inline-block w-6 h-6 border-[3px] border-current border-t-transparent text-blue-600 rounded-full" role="status"></div>
+                        <p className="mt-4 text-gray-500">Memuat entri jurnal...</p>
+                    </div>
+                );
+            }
+            if (entries.length === 0) {
+                return (
+                    <div className="text-center p-10 bg-white rounded-xl shadow-md border border-dashed border-gray-300">
+                        <p className="text-gray-500 text-lg">Jurnal ini masih kosong.</p>
+                        <p className="text-gray-400 text-sm">Mulai dengan entri pertama Anda di atas!</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-4">
+                    <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">Riwayat Entri Trading ({entries.length})</h2>
+                    {entries.map((entry) => (
+                        <div key={entry.id} className="bg-white p-5 rounded-lg shadow-lg border-l-4 border-blue-500 relative group">
+                            <button
+                                onClick={() => onDeleteEntry(entry.id)}
+                                className="absolute top-3 right-3 p-1 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-lg transition duration-150 opacity-0 group-hover:opacity-100"
+                                title="Hapus Entri"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-trash-2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                            </button>
+                            
+                            <div className="flex justify-between items-start mb-2">
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-900">{entry.pair}</h3>
+                                    <p className="text-sm text-gray-500">
+                                        Tanggal: {new Date(entry.timestamp).toLocaleString('id-ID')}
+                                    </p>
+                                </div>
+                                <div className="flex flex-col items-end space-y-1">
+                                    <span className={`px-3 py-1 text-sm font-bold rounded-full ${
+                                        entry.result === 'WIN' ? 'bg-green-100 text-green-800' : 
+                                        entry.result === 'LOSS' ? 'bg-red-100 text-red-800' : 
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                        {entry.result}
+                                    </span>
+                                    <span className={`px-2 py-1 text-xs font-bold rounded-full ${
+                                        entry.positionType === 'BUY' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                    }`}>
+                                        {entry.positionType}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 text-sm mb-3 border-t pt-2">
+                                <p className="text-gray-600">Lot: {entry.lotSize}</p>
+                                <p className="text-gray-600">Metode: {entry.tradingMethod || 'Tidak Diketahui'}</p>
+                                <p className="text-gray-600">P&L (USD): 
+                                    <span className={`font-extrabold ml-1 ${entry.pnlUsd >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                        ${entry.pnlUsd}
+                                    </span>
+                                </p>
+                                <p className="text-gray-600">P&L (Pips): {entry.pips}</p>
+                            </div>
+                            
+                            <div className="mt-3">
+                                <p className="text-xs font-semibold text-gray-600 mb-1">Catatan:</p>
+                                <p className="text-gray-700 whitespace-pre-wrap italic">{entry.notes}</p>
+                            </div>
+                            {entry.chartLink && (
+                                <a href={entry.chartLink} target="_blank" className="mt-2 inline-flex items-center text-blue-500 hover:text-blue-700 text-sm">
+                                    <LinkIcon /> <span className="ml-1">Lihat Chart</span>
+                                </a>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            );
+        };
+
+        const container = document.getElementById('root');
+        if (container) {
+            const root = ReactDOM.createRoot(container);
+            root.render(<App />);
+        } else {
+            console.error("Elemen root tidak ditemukan!");
+        }
+    </script>
+</body>
+</html>
